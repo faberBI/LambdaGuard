@@ -1,6 +1,6 @@
 # LambdaGuard
 
-**LambdaGuard** is a Gradient Boosting framework enhanced with spectral monitoring to detect overfitting in ensemble models.
+**LambdaGuard** is a framework enhanced with spectral monitoring to detect overfitting in ensemble models.
 
 It analyzes the internal structure of the ensemble by examining the eigenvalues of the **H matrix** (tree prediction contributions) and identifies spikes, low effective rank, and unstable tail behavior. This allows early detection of overfitting beyond traditional metrics like train/test RMSE.
 
