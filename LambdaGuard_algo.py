@@ -143,7 +143,6 @@ df = pd.DataFrame(results, columns=[
     "effective_rank", "alpha", "spectral_status", "eigvals_all", "lambda_ratio_norm"
 ])
 
-print(df)
 
 # ===============================
 # GRAFICO AUTOVALORI CON SPIKE
@@ -163,3 +162,4 @@ for idx, row in df.iterrows():
     plt.ylabel("Eigenvalue")
     plt.legend()
     plt.show()
+
