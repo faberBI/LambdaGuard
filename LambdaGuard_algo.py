@@ -163,3 +163,174 @@ for idx, row in df.iterrows():
     plt.legend()
     plt.show()
 
+
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import KFold
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# Funzione per costruire H
+# -----------------------------
+def build_H(model, X):
+    """
+    Costruisce la matrice H delle predizioni di ogni albero sul dataset X.
+    Ritorna H di dimensione n x T (n = #campioni, T = #alberi)
+    """
+    n = X.shape[0]
+    T = len(model.estimators_)
+    H = np.zeros((n, T))
+    for t, est in enumerate(model.estimators_):
+        # GradientBoostingRegressor ha shape (n_estimators, 1) per regressione
+        H[:, t] = est[0].predict(X)
+    return H
+
+# -----------------------------
+# Nuova funzione: target projection
+# -----------------------------
+def spectral_target_alignment(H_folds, y_folds, spike_percent=0.15):
+    """
+    Analizza dove il target cade nello spettro degli alberi.
+    Restituisce:
+    - alignment_ratio = bulk_energy / signal_energy
+    - bulk_energy_mean
+    - signal_energy_mean
+    - lambda_edge medio
+    """
+    bulk_energy_all = []
+    signal_energy_all = []
+    lambda_edges = []
+
+    for H, y in zip(H_folds, y_folds):
+        n, T = H.shape
+
+        # Gram matrix
+        G = (H.T @ H) / n
+
+        # autovalori e autovettori
+        eigvals, eigvecs = np.linalg.eigh(G)
+
+        # ordina crescente
+        idx = np.argsort(eigvals)
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+
+        # ---- proiezione del target ----
+        z = (H.T @ y) / n
+        c = eigvecs.T @ z
+        energy = c**2
+
+        # ---- stima bulk edge ----
+        n_spike = max(1, int(len(eigvals) * spike_percent))
+        bulk_eigvals = eigvals[:-n_spike]
+        lambda_edge = np.median(bulk_eigvals) + 3*np.std(bulk_eigvals)
+        lambda_edges.append(lambda_edge)
+
+        # separazione bulk / segnale
+        bulk_mask = eigvals <= lambda_edge
+        signal_mask = eigvals > lambda_edge
+
+        bulk_energy = np.sum(energy[bulk_mask])
+        signal_energy = np.sum(energy[signal_mask])
+
+        bulk_energy_all.append(bulk_energy)
+        signal_energy_all.append(signal_energy)
+
+    bulk_energy_mean = np.mean(bulk_energy_all)
+    signal_energy_mean = np.mean(signal_energy_all)
+
+    alignment_ratio = bulk_energy_mean / (signal_energy_mean + 1e-12)
+
+    return alignment_ratio, bulk_energy_mean, signal_energy_mean, np.mean(lambda_edges)
+
+# -----------------------------
+# ESPERIMENTO
+# -----------------------------
+# Parametri da testare
+max_depth_list = [2, 3, 5, 10, 15, 20]
+trees_list = [5, 10, 25, 50, 100, 300, 500]
+
+results = []
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+for max_depth in max_depth_list:
+    for n_trees in trees_list:
+
+        # Modello completo
+        model = GradientBoostingRegressor(
+            n_estimators=n_trees,
+            max_depth=max_depth,
+            learning_rate=0.05,
+            subsample=0.8,
+            random_state=42
+        )
+        model.fit(X_train, y_train)
+
+        # Costruzione H e y per i fold
+        H_folds = []
+        y_folds = []
+
+        for train_idx, val_idx in kf.split(X_train):
+            X_fold = X_train[train_idx]
+            y_fold = y_train[train_idx]
+
+            fold_model = GradientBoostingRegressor(
+                n_estimators=n_trees,
+                max_depth=max_depth,
+                learning_rate=0.05,
+                subsample=0.8,
+                random_state=42
+            )
+            fold_model.fit(X_fold, y_fold)
+
+            H_folds.append(build_H(fold_model, X_fold))
+            y_folds.append(y_fold)
+
+        # -----------------------------
+        # Calcolo statistica di overfitting
+        # -----------------------------
+        alignment_ratio, bulk_E, signal_E, lambda_edge = spectral_target_alignment(H_folds, y_folds)
+
+        # RMSE train/test
+        train_rmse = mean_squared_error(y_train, model.predict(X_train))
+        test_rmse = mean_squared_error(y_test, model.predict(X_test))
+
+        # Decisione di overfitting
+        if alignment_ratio > 1.5:
+            spectral_status = "⚠️ OVERFITTING (target in bulk)"
+        else:
+            spectral_status = "✅ GENERALIZING (target in signal)"
+
+        results.append([
+            max_depth, n_trees, round(train_rmse,4), round(test_rmse,4),
+            round(bulk_E,4), round(signal_E,4), round(lambda_edge,4),
+            round(alignment_ratio,3), spectral_status
+        ])
+
+# -----------------------------
+# TABELLONE RISULTATI
+# -----------------------------
+df = pd.DataFrame(results, columns=[
+    "max_depth", "trees", "train_rmse", "test_rmse",
+    "bulk_energy", "signal_energy", "lambda_edge",
+    "alignment_ratio", "spectral_status"
+])
+print(df)
+
+# -----------------------------
+# GRAFICO alignment_ratio vs #trees
+# -----------------------------
+plt.figure(figsize=(10,5))
+for depth in max_depth_list:
+    subset = df[df['max_depth']==depth]
+    plt.plot(subset['trees'], subset['alignment_ratio'], marker='o', label=f"max_depth={depth}")
+
+plt.axhline(1.5, color='red', linestyle='--', label="Overfitting threshold")
+plt.xlabel("Number of Trees")
+plt.ylabel("Alignment Ratio (bulk/signal)")
+plt.title("Overfitting Detection via Target Projection in Spectrum")
+plt.legend()
+plt.show()
