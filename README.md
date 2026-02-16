@@ -105,6 +105,9 @@ Combines structural complexity and stability:
 4. **Instability \(S\)** detects sensitivity to perturbations.  
 5. **λ** = normalized “overfitting score” derived entirely from **training data**, without test set or OOF folds.  
 
+
+![Alt text](path/doc/geometric inter.png "Geometric Interpretation")
+
 Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradient Boosting models: it measures **how much of the learned representation is used productively versus wasted**, geometrically.
 
 ---
