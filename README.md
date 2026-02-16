@@ -107,7 +107,7 @@ Combines structural complexity and stability:
 
 
 <img src="doc/geometric inter.png" alt="Geometric Interpretation" width="600"/>
-
+Geometric interpretation of Lambda-Guard. Gray squares: leaf regions, blue points: original observations, red points: instability, green arrows: alignment. High lambda occurs when capacity is high, alignment low, and instability high
 
 
 Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradient Boosting models: it measures **how much of the learned representation is used productively versus wasted**, geometrically.
