@@ -1,4 +1,4 @@
-# λ-Guard: Structural + Stability Overfitting Index for Gradient Boosting
+# λ-Guard: Structural & Stability Overfitting Index for Gradient Boosting
 
 ## Overview
 
