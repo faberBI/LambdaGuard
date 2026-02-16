@@ -106,7 +106,8 @@ Combines structural complexity and stability:
 5. **λ** = normalized “overfitting score” derived entirely from **training data**, without test set or OOF folds.  
 
 
-![Geometric Interpretation](doc/geometric inter.png "Geometric Interpretation")
+<img src="doc/geometric inter.png" alt="Geometric Interpretation" width="600"/>
+
 
 
 Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradient Boosting models: it measures **how much of the learned representation is used productively versus wasted**, geometrically.
