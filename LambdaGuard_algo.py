@@ -1,310 +1,200 @@
+# ============================================================
+# FULL EXPERIMENT: LAMBDA GUARD 
+# ============================================================
+
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.datasets import fetch_california_housing
-from sklearn.model_selection import KFold, train_test_split
+
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-from scipy import stats
+from sklearn.datasets import load_diabetes
 
-# ===============================
-# DATASET
-# ===============================
-X, y = fetch_california_housing(return_X_y=True)
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42
-)
 
-# ===============================
-# COSTRUZIONE H SU UN FOLD
-# ===============================
-def build_H(model, X):
-    trees = model.estimators_.ravel()
-    H = np.column_stack([t.predict(X) for t in trees])
-    H = H - H.mean(axis=0)  # centering sul fold
-    return H
+# ============================================================
+# GENERALIZATION COMPONENTS
+# ============================================================
 
-# ===============================
-# METRICHE SPECTRAL WEIGHT WATCH (SPIKE VERSION)
-# ===============================
-def spectral_weightwatch(H_folds, spike_percent=0.15):
-    lambda_max_list = []
-    eff_rank_list = []
-    alpha_list = []
-    eigvals_all = []
+def generalization_index(model, X, y):
+    """
+    A = Alignment with target (train R correlation)
+    C = Capacity (variance of predictions)
+    """
+    preds = model.predict(X)
 
-    for H in H_folds:
-        n, T = H.shape
-        G = (H.T @ H) / n
-        eigvals = np.linalg.eigvalsh(G)
-        eigvals_all.append(np.sort(eigvals))
-        eigvals_sorted = np.sort(eigvals)
+    # Alignment = correlation with target
+    A = np.corrcoef(preds, y)[0, 1]
 
-        # λ_max
-        lambda_max_list.append(eigvals_sorted[-1])
+    # Capacity = variance of predictions
+    C = np.var(preds)
 
-        # Effective Rank
-        trace = np.sum(eigvals_sorted)
-        p = eigvals_sorted / np.sum(eigvals_sorted)
-        eff_rank_entropy = np.exp(-np.sum(p * np.log(p + 1e-12)))
-        eff_rank_list.append(eff_rank_entropy)
+    # Avoid division problems
+    GI = A / C if C > 0 else 0
 
-        # Power-law alpha sulla coda (top 30%)
-        cutoff = int(len(eigvals_sorted) * 0.7)
-        tail = eigvals_sorted[cutoff:]
-        tail = tail[tail > 1e-12]
-        log_lambda = np.log(tail)
-        hist, bin_edges = np.histogram(log_lambda, bins=20, density=True)
-        centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        mask = hist > 0
-        slope, _, _, _, _ = stats.linregress(centers[mask], np.log(hist[mask]))
-        alpha_list.append(-slope)
+    return GI, A, C
 
-    # λ_max e distribuzione bulk
-    lambda_max_real = np.mean(lambda_max_list)
 
-    all_eigvals = np.concatenate(eigvals_all)
-    all_eigvals = np.sort(all_eigvals)
+def instability_index(model, X, noise_std=1e-3):
+    """
+    Measures prediction sensitivity to small input perturbations
+    """
+    preds_clean = model.predict(X)
+    noise = np.random.normal(0, noise_std, X.shape)
+    X_noisy = X + noise
+    preds_noisy = model.predict(X_noisy)
 
-    # stima bulk edge robusta
-    n_spike = max(1, int(len(all_eigvals) * spike_percent))
-    bulk_eigvals = all_eigvals[:-n_spike]
-    lambda_edge = lambda_edge = np.median(bulk_eigvals) + 3 * np.std(bulk_eigvals)
-    sigma_bulk = np.std(bulk_eigvals)
-    lambda_ratio_norm = (lambda_max_real / (lambda_edge + 1e-12)) / n_trees
-    
+    instability = np.mean(np.abs(preds_clean - preds_noisy))
+    instability /= (np.std(preds_clean) + 1e-8)
 
-    # effective rank e alpha medi
-    eff_rank_mean = np.mean(eff_rank_list)
-    alpha_mean = np.mean(alpha_list)
+    return instability
 
-    return lambda_max_real, lambda_edge, sigma_bulk, eff_rank_mean, alpha_mean, eigvals_all, lambda_ratio_norm
 
-# ===============================
-# ESPERIMENTO
-# ===============================
-max_depth_list = [2, 3, 5, 10, 15, 20]
-trees_list = [5, 10, 25, 50, 100, 300, 500]
+# ============================================================
+# EXPERIMENT
+# ============================================================
 
-results = []
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
+def run_experiment(X, y, dataset_name):
 
-for max_depth in max_depth_list:
-    for n_trees in trees_list:
+    print("\n" + "="*70)
+    print(f"DATASET: {dataset_name}")
+    print("="*70)
 
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42
+    )
+
+    n_estimators_list = [20, 100, 500]
+    max_depth_list = [3, 7, 15]
+    min_samples_leaf_list = [2, 5, 10, 15]
+
+    results = []
+
+    for sl in min_samples_leaf_list:
+        for n_est in n_estimators_list:
+            for depth in max_depth_list:
+
+                model = GradientBoostingRegressor(
+                    n_estimators=n_est,
+                    max_depth=depth,
+                    learning_rate=0.05,
+                    subsample=0.8,
+                    min_samples_leaf=sl,
+                    random_state=42
+                )
+
+                model.fit(X_train, y_train)
+
+                # ---- Structural Components ----
+                GI, A, C = generalization_index(model, X_train, y_train)
+                G_norm = A / (A + C)
+
+                # ---- Stability ----
+                S = instability_index(model, X_train)
+
+                # ---- Overfitting Index ----
+                OFI = (C / (A + C)) * S
+
+                results.append({
+                    "dataset": dataset_name,
+                    "min_samples_leaf": sl,
+                    "n_estimators": n_est,
+                    "max_depth": depth,
+                    "A": A,
+                    "C": C,
+                    "GI": GI,
+                    "G_norm": G_norm,
+                    "Instability": S,
+                    "OFI": OFI
+                })
+
+    df = pd.DataFrame(results)
+
+    # ---- Normalize OFI ----
+    OFI_min = df["OFI"].min()
+    OFI_max = df["OFI"].max()
+    df["OFI_norm"] = (df["OFI"] - OFI_min) / (OFI_max - OFI_min)
+
+    # ---- Compute RMSE on train/test ----
+    for idx, row in df.iterrows():
         model = GradientBoostingRegressor(
-            n_estimators=n_trees,
-            max_depth=max_depth,
+            n_estimators=int(row["n_estimators"]),
+            max_depth=int(row["max_depth"]),
             learning_rate=0.05,
             subsample=0.8,
+            min_samples_leaf=int(row["min_samples_leaf"]),
             random_state=42
         )
         model.fit(X_train, y_train)
+        y_train_pred = model.predict(X_train)
+        y_test_pred = model.predict(X_test)
 
-        # costruzione H su fold
-        H_folds = []
-        for train_idx, val_idx in kf.split(X_train):
-            X_fold = X_train[train_idx]
-            y_fold = y_train[train_idx]
-            fold_model = GradientBoostingRegressor(
-                n_estimators=n_trees,
-                max_depth=max_depth,
-                learning_rate=0.05,
-                subsample=0.8,
-                random_state=42
-            )
-            fold_model.fit(X_fold, y_fold)
-            H_folds.append(build_H(fold_model, X_fold))
+        rmse_train = np.sqrt(mean_squared_error(y_train, y_train_pred))
+        rmse_test = np.sqrt(mean_squared_error(y_test, y_test_pred))
+        gap = rmse_test - rmse_train
 
-        lambda_max_real, lambda_edge, sigma_bulk, eff_rank, alpha, eigvals_all, lambda_ratio_norm = spectral_weightwatch(H_folds)
+        df.at[idx, "Train_RMSE"] = rmse_train
+        df.at[idx, "Test_RMSE"] = rmse_test
+        df.at[idx, "Gap"] = gap
 
-        train_rmse = mean_squared_error(y_train, model.predict(X_train))
-        test_rmse = mean_squared_error(y_test, model.predict(X_test))
+    print("\nTop 5 Lowest Test RMSE:")
+    print(df.sort_values("Test_RMSE").head())
 
-        # si potrebbe usare -> lambda_ratio_thresh = 1.0 + np.log10(n_trees)
-        
-        if (lambda_ratio_norm > 3):
-            spectral_status = "⚠️ OVERFITTING DETECTED (spike)"
-        else:
-            spectral_status = "✅ OK"
-
-        results.append([
-            max_depth, n_trees, round(train_rmse,4), round(test_rmse,4),
-            round(lambda_max_real,4), round(lambda_edge,4), round(sigma_bulk,4),
-            round(eff_rank,2), round(alpha,2), spectral_status, eigvals_all, lambda_ratio_norm
-        ])
-
-# ===============================
-# TABELLONE
-# ===============================
-df = pd.DataFrame(results, columns=[
-    "max_depth", "trees", "train_rmse", "test_rmse",
-    "lambda_max_real", "lambda_edge", "sigma_bulk",
-    "effective_rank", "alpha", "spectral_status", "eigvals_all", "lambda_ratio_norm"
-])
+    return df
 
 
-# ===============================
-# GRAFICO AUTOVALORI CON SPIKE
-# ===============================
-for idx, row in df.iterrows():
-    plt.figure(figsize=(8,4))
-    eigvals_combined = np.concatenate(row['eigvals_all'])
-    eigvals_combined = np.sort(eigvals_combined)
+# ============================================================
+# PLOTTING
+# ============================================================
 
-    plt.plot(eigvals_combined, marker='o', linestyle='', markersize=4, label='Eigenvalues')
-    cutoff_idx = int(len(eigvals_combined)*(1-0.15))  # spike percent
-    plt.axvline(cutoff_idx, color='gray', linestyle='--', label='Spike cutoff')
-    plt.axhline(row['lambda_max_real'], color='red', linestyle='-', linewidth=2, label=f'λ_max_real={row["lambda_max_real"]:.2f}')
-    plt.axhline(row['lambda_edge'], color='green', linestyle='--', linewidth=2, label=f'λ_edge={row["lambda_edge"]:.2f}')
-    plt.title(f"Max Depth={row['max_depth']}, Trees={row['trees']}\nStatus: {row['spectral_status']}")
-    plt.xlabel("Index of eigenvalues")
-    plt.ylabel("Eigenvalue")
-    plt.legend()
+def plot_all(df, dataset_name):
+
+    # G_norm vs Gap
+    plt.figure(figsize=(6,5))
+    sns.regplot(data=df, x="G_norm", y="Gap")
+    plt.title(f"{dataset_name} - G_norm vs Gap")
+    plt.grid(True)
+    plt.show()
+
+    # OFI normalized vs Gap
+    plt.figure(figsize=(6,5))
+    sns.regplot(data=df, x="OFI_norm", y="Gap")
+    plt.title(f"{dataset_name} - Normalized OFI vs Gap")
+    plt.grid(True)
+    plt.show()
+
+    # Heatmap OFI_norm
+    pivot_ofi = df.pivot_table(
+        values="OFI_norm",
+        index="max_depth",
+        columns="n_estimators",
+        aggfunc="mean"
+    )
+
+    plt.figure(figsize=(6,5))
+    sns.heatmap(pivot_ofi, annot=True, fmt=".3f", cmap="Purples")
+    plt.title(f"{dataset_name} - Normalized OFI Heatmap")
+    plt.show()
+
+    # Heatmap Gap
+    pivot_gap = df.pivot_table(
+        values="Gap",
+        index="max_depth",
+        columns="n_estimators",
+        aggfunc="mean"
+    )
+
+    plt.figure(figsize=(6,5))
+    sns.heatmap(pivot_gap, annot=True, fmt=".3f", cmap="Reds")
+    plt.title(f"{dataset_name} - Gap Heatmap")
     plt.show()
 
 
+# ============================================================
+# RUN
+# ============================================================
 
-
-import numpy as np
-import pandas as pd
-from sklearn.datasets import load_diabetes
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.metrics import mean_squared_error
-from scipy import stats
-
-# ===============================
-# DATASET: DIABETES
-# ===============================
-X, y = load_diabetes(return_X_y=True)
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42
-)
-
-# ===============================
-# COSTRUZIONE MATRICE H
-# ===============================
-def build_H(model, X):
-    trees = model.estimators_.ravel()
-    H = np.column_stack([t.predict(X) for t in trees])
-    H -= H.mean(axis=0)
-    return H
-
-# ===============================
-# ANALISI SPETTRALE
-# ===============================
-def spectral_analysis(H_folds):
-    lambda_ratio_list = []
-    eff_rank_list = []
-    alpha_list = []
-
-    for H in H_folds:
-        n, T = H.shape
-        G = (H.T @ H) / n
-        eigvals = np.sort(np.linalg.eigvalsh(G))
-
-        # ---- spike strength ----
-        bulk = eigvals[: int(0.85 * T)]
-        lambda_ratio = eigvals[-1] / (np.mean(bulk) + 1e-12)
-        lambda_ratio_list.append(lambda_ratio)
-
-        # ---- effective rank ----
-        p = eigvals / np.sum(eigvals)
-        eff_rank = np.exp(-np.sum(p * np.log(p + 1e-12)))
-        eff_rank_list.append(eff_rank)
-
-        # ---- power-law alpha ----
-        tail = eigvals[int(0.7 * T):]
-        tail = tail[tail > 1e-12]
-
-        log_l = np.log(tail)
-        hist, bins = np.histogram(log_l, bins=20, density=True)
-        centers = 0.5 * (bins[:-1] + bins[1:])
-        mask = hist > 0
-
-        slope, _, _, _, _ = stats.linregress(
-            centers[mask], np.log(hist[mask])
-        )
-        alpha_list.append(-slope)
-
-    return {
-        "lambda_ratio_norm": np.mean(lambda_ratio_list),
-        "eff_rank_mean": np.mean(eff_rank_list),
-        "alpha_mean": np.mean(alpha_list)
-    }
-
-# ===============================
-# ESPERIMENTO
-# ===============================
-max_depth_list = [2, 3, 5, 10, 20, 25]
-trees_list = [10, 20, 50, 100, 300, 500, 1000]
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
-
-results = []
-
-for depth in max_depth_list:
-    for n_trees in trees_list:
-
-        H_folds = []
-
-        for tr_idx, _ in kf.split(X_train):
-            X_fold = X_train[tr_idx]
-            y_fold = y_train[tr_idx]
-
-            model = GradientBoostingRegressor(
-                n_estimators=n_trees,
-                max_depth=depth,
-                learning_rate=0.05,
-                subsample=0.8,
-                random_state=42
-            )
-            model.fit(X_fold, y_fold)
-            H_folds.append(build_H(model, X_fold))
-
-        stats_spec = spectral_analysis(H_folds)
-
-        # ===============================
-        # REGOLA DI OVERFITTING (SOLO SPETTRALE)
-        # ===============================
-        overfitting = (
-            stats_spec["lambda_ratio_norm"] > 3.0 and
-            stats_spec["alpha_mean"] > 0.15 and
-            stats_spec["eff_rank_mean"] / n_trees < 0.3
-        )
-
-        # ===============================
-        # RMSE train/test
-        # ===============================
-        train_rmse = mean_squared_error(y_train, model.predict(X_train))
-        test_rmse = mean_squared_error(y_test, model.predict(X_test))
-
-        results.append([
-            depth,
-            n_trees,
-            round(stats_spec["lambda_ratio_norm"], 3),
-            round(stats_spec["alpha_mean"], 3),
-            round(stats_spec["eff_rank_mean"] / n_trees, 3),
-            "OVERFITTING" if overfitting else "OK",
-            round(train_rmse, 3),
-            round(test_rmse, 3)
-        ])
-
-# ===============================
-# RISULTATI
-# ===============================
-df = pd.DataFrame(
-    results,
-    columns=[
-        "max_depth",
-        "n_trees",
-        "lambda_ratio_norm",
-        "alpha_mean",
-        "eff_rank_ratio",
-        "spectral_status",
-        "train_RMSE",
-        "test_RMSE"
-    ]
-)
-
-print(df)
+diab = load_diabetes()
+df_diab = run_experiment(diab.data, diab.target, "Diabetes")
+plot_all(df_diab, "Diabetes")
