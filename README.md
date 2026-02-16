@@ -9,7 +9,7 @@ It decomposes the model into two key spaces:
 1. **Representation Space (Capacity)** – captures the structural complexity of the model in terms of how the input space is partitioned.  
 2. **Prediction Trajectory Space (Alignment)** – measures how effectively each component (tree) contributes to the predictive target.
 
-Each tree in Gradient Boosting partitions the input space into leaf regions. We define a **binary matrix Z**:
+Each tree in Gradient Boosting partitions the input space into leaf regions. We define a **binary matrix \(Z\)**:
 
 \[
 Z_{i,j} =
@@ -22,7 +22,7 @@ Z_{i,j} =
 - Rows correspond to observations  
 - Columns correspond to leaf regions across all trees  
 
-This matrix acts as a geometric analog to the **hat matrix (H)** in linear regression: it encodes how the model “projects” the training data into its learned representation.
+This matrix acts as a geometric analog to the **hat matrix (\(H\))** in linear regression: it encodes how the model “projects” the training data into its learned representation.
 
 ---
 
@@ -85,14 +85,14 @@ S = \frac{1}{n} \sum_{i=1}^{n} \frac{|f(x_i) - f(x_i + \epsilon_i)|}{\sigma_f}, 
 Combines structural complexity and stability:
 
 \[
-\text{λ} = \frac{C}{A + C} \cdot S
+\lambda = \frac{C}{A + C} \cdot S
 \]
 
 - High λ → many independent regions that **do not contribute to alignment**, plus unstable predictions → overfitting  
 - Can also normalize to [0,1]:
 
 \[
-\text{λ}_{\text{norm}} = \frac{\text{λ} - \min(\text{λ})}{\max(\text{λ}) - \min(\text{λ})}
+\lambda_{\text{norm}} = \frac{\lambda - \min(\lambda)}{\max(\lambda) - \min(\lambda)}
 \]
 
 ---
@@ -113,4 +113,4 @@ Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradien
 
 - Hat matrix \(H\) in linear regression  
 - Gradient Boosting as a functional additive model  
-- Generalization Index (GI) framework  
+- Generalization Index (GI) framework
