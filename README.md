@@ -24,7 +24,7 @@ Z_{i,j} =
 
 This matrix acts as a geometric analog to the **hat matrix (\(H\))** in linear regression: it encodes how the model “projects” the training data into its learned representation.
 
----
+
 
 ## Components of λ-Guard
 
@@ -39,7 +39,7 @@ C = \mathrm{Var}(Z) = \frac{1}{n} \sum_{i=1}^n \| Z_i - \bar{Z} \|^2
 - High \(C\) → many independent regions (complex partitioning)  
 - Low \(C\) → few effective regions → simpler model  
 
----
+
 
 ### 2. Alignment \(A\)
 
@@ -52,7 +52,7 @@ A = \mathrm{Corr}(f(X), y) \quad \text{or equivalently } A = \mathrm{Var}(f(X))
 - High \(A\) → each tree contributes independent functional information  
 - Low \(A\) → later trees are almost linear combinations of earlier ones  
 
----
+
 
 ### 3. Generalization Index (GI)
 
@@ -66,7 +66,7 @@ G_{\text{norm}} = \frac{A}{A + C} \in [0,1]
 - \(G_{\text{norm}} \to 1\) → strong generalization  
 - \(G_{\text{norm}} \to 0\) → high capacity, low alignment → potential overfitting  
 
----
+
 
 ### 4. Instability Index \(S\)
 
@@ -92,9 +92,17 @@ Combines structural complexity and stability:
 
 \[\lambda_{\text{norm}} = \frac{\lambda - \min(\lambda)}{\max(\lambda) - \min(\lambda)}\]
 
-<img src="doc/regression_gap_lambda.png" alt="Relationship RMSE Train/Testt gap vs Lambda-Guard" width="600"/>
-<img src="doc/Norm OFI California.png" alt="RMSE Train/Testt gap vs Lambda-Guard" width="600"/>
----
+<img src="doc/regression_gap_lambda.png"
+     alt="Relationship RMSE Train/Test gap vs Lambda-Guard"
+     width="600"
+     style="display: block; margin: auto;" />
+
+<img src="doc/Norm OFI California.png"
+     alt="RMSE Train/Test gap vs Lambda-Guard"
+     width="600"
+     style="display: block; margin: auto;" />
+
+
 
 ## Geometric Interpretation
 
@@ -111,7 +119,7 @@ Geometric interpretation of Lambda-Guard. Gray squares: leaf regions, blue point
 
 Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradient Boosting models: it measures **how much of the learned representation is used productively versus wasted**, geometrically.
 
----
+
 
 ### References / Inspirations
 
