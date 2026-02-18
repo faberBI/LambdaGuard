@@ -374,141 +374,133 @@ def gap_lambdaguard_test(df):
   plt.show()
 
 
-# Overfitting test
-
+# TEST OVERFITTING
 import numpy as np
-import pandas as pd
-from sklearn.datasets import load_diabetes
-from sklearn.ensemble import GradientBoostingRegressor
-import matplotlib.pyplot as plt
+from sklearn.base import clone
 
-# ============================================================
-# GENERALIZATION COMPONENTS
-# ============================================================
-def generalization_index(model, X, y):
-    preds = model.predict(X)
-    A = np.corrcoef(preds, y)[0, 1]
-    C = np.var(preds)
-    GI = A / C if C > 0 else 0
-    return GI, A, C
+def lambda_guard_overfit_test(model, X, y, N=100, noise_std=1e-3,
+                              random_state=0, alpha=0.05, verbose=True):
 
-def instability_index(model, X, noise_std=1e-3):
-    preds_clean = model.predict(X)
-    noise = np.random.normal(0, noise_std, X.shape)
-    X_noisy = X + noise
-    preds_noisy = model.predict(X_noisy)
-    instability = np.mean(np.abs(preds_clean - preds_noisy))
-    instability /= (np.std(preds_clean) + 1e-8)
-    return instability
+    rng = np.random.RandomState(random_state)
+    n = len(y)
 
-# ============================================================
-# Dataset diabetes
-# ============================================================
-data = load_diabetes()
-X, y = data.data, data.target
+    # --------------------------------------------------
+    # Helpers
+    # --------------------------------------------------
 
-# ============================================================
-# Funzione OFI / lambda usando instability_index
-# ============================================================
-def compute_OFI(model, X, y, n_perturb=20, noise_std=1e-3, random_state=None):
-    rng = np.random.default_rng(random_state)
-    model.fit(X, y)
-    S_list = []
-    for _ in range(n_perturb):
-        S_list.append(instability_index(model, X, noise_std=noise_std))
-    OFI = np.mean(S_list)
-    return OFI
+    def alignment_R2(preds, y_true):
+        var_y = np.var(y_true)
+        if var_y == 0:
+            return 0.0
+        r2 = 1 - np.var(y_true - preds) / var_y
+        return max(0.0, r2)
 
-# ============================================================
-# Funzione lambda_z test con parametri casuali
-# ============================================================
-def lambda_z_test_random(model_class, base_params, X, y, param_ranges, n_random=50, n_perturb=20, noise_std=1e-3, random_state=42):
-    rng = np.random.default_rng(random_state)
-    
-    # Modello base
-    base_model = model_class(**base_params)
-    lambda_base = compute_OFI(base_model, X, y, n_perturb=n_perturb, noise_std=noise_std)
-    
-    # Modelli randomizzati
-    lambdas_random = []
-    for _ in range(n_random):
-        random_params = {
-            "n_estimators": rng.integers(*param_ranges["n_estimators"]),
-            "max_depth": rng.integers(*param_ranges["max_depth"]),
-            "min_samples_leaf": rng.integers(*param_ranges["min_samples_leaf"]),
-            "random_state": 42
-        }
-        model = model_class(**random_params)
-        lambdas_random.append(compute_OFI(model, X, y, n_perturb=n_perturb, noise_std=noise_std))
-    
-    lambdas_random = np.array(lambdas_random)
-    
-    # Calcolo z-score empirico
-    mu = np.mean(lambdas_random)
-    sigma = np.std(lambdas_random, ddof=1)
-    lambda_z = (lambda_base - mu) / sigma
-    
-    # p-value empirico (percentuale di modelli random >= base)
-    p_empirical = np.mean(lambdas_random >= lambda_base)
-    
-    # Threshold empirico (es. 95° percentile)
-    lambda_threshold = np.percentile(lambdas_random, 95)
-    overfitting_risk = lambda_base > lambda_threshold
-    
-    return lambda_base, lambda_z, p_empirical, lambdas_random, lambda_threshold, overfitting_risk
+    def instability_index(model, X_local):
+        preds_clean = model.predict(X_local)
+        noise = rng.normal(0, noise_std, X_local.shape)
+        preds_noisy = model.predict(X_local + noise)
 
-# ============================================================
-# Parametri modello base e range casuali
-# ============================================================
-base_params = {
-    "n_estimators": 50,
-    "max_depth": 3,
-    "min_samples_leaf": 2,
-    "random_state": 42
-}
+        mse_shift = np.mean((preds_clean - preds_noisy) ** 2)
+        var_preds = np.var(preds_clean) + 1e-12
 
-param_ranges = {
-    "n_estimators": (50, 200),
-    "max_depth": (2, 10),
-    "min_samples_leaf": (1, 5)
-}
+        return mse_shift / var_preds
 
-# ============================================================
-# Esecuzione lambda_z test
-# ============================================================
-lambda_base, lambda_z, p_empirical, lambdas_random, lambda_threshold, overfitting_risk = \
-    lambda_z_test_random(
-        GradientBoostingRegressor,
-        base_params,
-        X,
-        y,
-        param_ranges,
-        n_random=100,
-        n_perturb=20,
-        noise_std=0.01
-    )
+    def compute_G(train_preds, oob_preds, y_train, y_oob, S_train):
+        A_oob = alignment_R2(oob_preds, y_oob)
+        C_train = np.var(train_preds)
+        G = (C_train / (A_oob + C_train + 1e-12)) * S_train
+        return G
 
-# ============================================================
-# Output
-# ============================================================
-print(f"Lambda base: {lambda_base:.6f}")
-print(f"Lambda z-score: {lambda_z:.3f}")
-print(f"Empirical p-value: {p_empirical:.3f}")
-print(f"Lambda 95° percentile random: {lambda_threshold:.6f}")
-print(f"Rischio overfitting? {'SI' if overfitting_risk else 'NO'}")
+    # --------------------------------------------------
+    # Fit base model on full dataset
+    # --------------------------------------------------
 
-# ============================================================
-# Plot distribuzione lambda
-# ============================================================
-plt.hist(lambdas_random, bins=20, alpha=0.7, label='Random models')
-plt.axvline(lambda_base, color='red', linestyle='--', label='Base model λ')
-plt.axvline(lambda_threshold, color='green', linestyle='--', label='95° percentile')
-plt.xlabel("λ Guard")
-plt.ylabel("Frequency")
-plt.title("Lambda distribution vs Base model (Instability-based) - Diabetes dataset")
-plt.legend()
-plt.show()
+    base_model = clone(model)
+    base_model.fit(X, y)
 
+    base_train_preds = base_model.predict(X)
+    S_base_full = instability_index(base_model, X)
 
+    # --------------------------------------------------
+    # Bootstrap Monte Carlo
+    # --------------------------------------------------
 
+    G_boot = []
+    G_base_eval = []
 
+    for _ in range(N):
+
+        # Bootstrap sample
+        idx = rng.choice(n, n, replace=True)
+        oob_mask = np.ones(n, dtype=bool)
+        oob_mask[idx] = False
+
+        if np.sum(oob_mask) < 5:
+            continue
+
+        Xb, yb = X[idx], y[idx]
+        Xoob, yoob = X[oob_mask], y[oob_mask]
+
+        # -------------------
+        # Bootstrap model
+        # -------------------
+        m = clone(model)
+        m.fit(Xb, yb)
+
+        train_preds_b = m.predict(Xb)
+        oob_preds_b = m.predict(Xoob)
+        S_b = instability_index(m, Xb)
+
+        G_b = compute_G(train_preds_b, oob_preds_b, yb, yoob, S_b)
+        G_boot.append(G_b)
+
+        # -------------------
+        # Base model evaluated on same OOB
+        # -------------------
+        base_oob_preds = base_model.predict(Xoob)
+
+        G_base_i = compute_G(
+            base_train_preds,
+            base_oob_preds,
+            y,
+            yoob,
+            S_base_full
+        )
+
+        G_base_eval.append(G_base_i)
+
+    G_boot = np.array(G_boot)
+    G_base_eval = np.array(G_base_eval)
+
+    # --------------------------------------------------
+    # Final statistic
+    # --------------------------------------------------
+
+    G_base = np.mean(G_base_eval)
+
+    p_value = (1 + np.sum(G_boot <= G_base)) / (len(G_boot) + 1)
+    Z_score = (G_base - np.mean(G_boot)) / (np.std(G_boot) + 1e-12)
+
+    # --------------------------------------------------
+    # Output
+    # --------------------------------------------------
+
+    if verbose:
+        print("\n=== LAMBDA-GUARD OVERFITTING TEST ===")
+        print("G_base:", G_base)
+        print("Mean G_boot:", np.mean(G_boot))
+        print("Z-score:", Z_score)
+        print("p-value:", p_value)
+
+        if p_value < alpha:
+            print("Diagnosis: OVERFITTING detected")
+        else:
+            print("Diagnosis: Model stable")
+
+    return {
+        "G_base": G_base,
+        "G_boot_mean": np.mean(G_boot),
+        "p_value": p_value,
+        "Z_score": Z_score,
+        "G_distribution": G_boot
+    }
