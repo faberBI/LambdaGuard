@@ -377,130 +377,142 @@ def gap_lambdaguard_test(df):
 # TEST OVERFITTING
 import numpy as np
 from sklearn.base import clone
+import numpy as np
+from sklearn.base import clone
+import matplotlib.pyplot as plt
 
-def lambda_guard_overfit_test(model, X, y, N=100, noise_std=1e-3,
-                              random_state=0, alpha=0.05, verbose=True):
+def lambda_guard_overfit_test_corrected(model, X, y, N=100, noise_std=None,
+                                       random_state=0, alpha=0.05, verbose=True):
+    """
+    Lambda-Guard Overfitting Test (corretto)
+    
+    - Calcola Lambda sul train (modello base)
+    - Calcola distribuzione di Lambda su OOB / bootstrap
+    - Confronto statistico: se Lambda_train > Lambda_oob (media o percentili), overfitting
+    """
 
     rng = np.random.RandomState(random_state)
     n = len(y)
 
-    # --------------------------------------------------
-    # Helpers
-    # --------------------------------------------------
+    # Adatta il rumore alla scala dei dati
+    if noise_std is None:
+        noise_std = 0.01 * np.std(X, axis=0) + 0.01 * np.std(y)
 
+    # --------------------------
+    # Helper functions
+    # --------------------------
     def alignment_R2(preds, y_true):
         var_y = np.var(y_true)
         if var_y == 0:
             return 0.0
-        r2 = 1 - np.var(y_true - preds) / var_y
-        return max(0.0, r2)
+        return max(0.0, 1 - np.var(y_true - preds) / var_y)
 
     def instability_index(model, X_local):
         preds_clean = model.predict(X_local)
         noise = rng.normal(0, noise_std, X_local.shape)
         preds_noisy = model.predict(X_local + noise)
-
-        mse_shift = np.mean((preds_clean - preds_noisy) ** 2)
+        mse_shift = np.mean((preds_clean - preds_noisy)**2)
         var_preds = np.var(preds_clean) + 1e-12
-
         return mse_shift / var_preds
 
-    def compute_G(train_preds, oob_preds, y_train, y_oob, S_train):
-        A_oob = alignment_R2(oob_preds, y_oob)
-        C_train = np.var(train_preds)
-        G = (C_train / (A_oob + C_train + 1e-12)) * S_train
-        return G
+    def compute_C(preds):
+        return np.var(preds)
 
-    # --------------------------------------------------
-    # Fit base model on full dataset
-    # --------------------------------------------------
+    def compute_Lambda(C, A, S):
+        return (C / (C + A + 1e-12)) * S
 
+    # --------------------------
+    # Fit modello base sul train
+    # --------------------------
     base_model = clone(model)
     base_model.fit(X, y)
+    base_preds = base_model.predict(X)
 
-    base_train_preds = base_model.predict(X)
-    S_base_full = instability_index(base_model, X)
+    C_train = compute_C(base_preds)
+    A_train = alignment_R2(base_preds, y)
+    S_train = instability_index(base_model, X)
+    Lambda_train = compute_Lambda(C_train, A_train, S_train)
 
-    # --------------------------------------------------
-    # Bootstrap Monte Carlo
-    # --------------------------------------------------
-
-    G_boot = []
-    G_base_eval = []
+    # --------------------------
+    # Bootstrap OOB
+    # --------------------------
+    Lambda_oob_list = []
+    C_oob_list = []
+    A_oob_list = []
+    S_oob_list = []
 
     for _ in range(N):
-
-        # Bootstrap sample
         idx = rng.choice(n, n, replace=True)
         oob_mask = np.ones(n, dtype=bool)
         oob_mask[idx] = False
-
         if np.sum(oob_mask) < 5:
             continue
 
         Xb, yb = X[idx], y[idx]
         Xoob, yoob = X[oob_mask], y[oob_mask]
 
-        # -------------------
-        # Bootstrap model
-        # -------------------
         m = clone(model)
         m.fit(Xb, yb)
 
-        train_preds_b = m.predict(Xb)
-        oob_preds_b = m.predict(Xoob)
-        S_b = instability_index(m, Xb)
+        preds_oob = m.predict(Xoob)
+        C_oob = compute_C(preds_oob)
+        A_oob = alignment_R2(preds_oob, yoob)
+        S_oob = instability_index(m, Xoob)
+        Lambda_oob = compute_Lambda(C_oob, A_oob, S_oob)
 
-        G_b = compute_G(train_preds_b, oob_preds_b, yb, yoob, S_b)
-        G_boot.append(G_b)
+        Lambda_oob_list.append(Lambda_oob)
+        C_oob_list.append(C_oob)
+        A_oob_list.append(A_oob)
+        S_oob_list.append(S_oob)
 
-        # -------------------
-        # Base model evaluated on same OOB
-        # -------------------
-        base_oob_preds = base_model.predict(Xoob)
+    Lambda_oob_arr = np.array(Lambda_oob_list)
+    C_oob_arr = np.array(C_oob_list)
+    A_oob_arr = np.array(A_oob_list)
+    S_oob_arr = np.array(S_oob_list)
 
-        G_base_i = compute_G(
-            base_train_preds,
-            base_oob_preds,
-            y,
-            yoob,
-            S_base_full
-        )
+    # --------------------------
+    # Test statistico
+    # --------------------------
+    R = Lambda_train / (np.mean(Lambda_oob_arr) + 1e-12)
+    p_value = (1 + np.sum(Lambda_oob_arr >= Lambda_train)) / (len(Lambda_oob_arr) + 1)
 
-        G_base_eval.append(G_base_i)
+    overfitting = R > 1 or p_value < alpha
 
-    G_boot = np.array(G_boot)
-    G_base_eval = np.array(G_base_eval)
-
-    # --------------------------------------------------
-    # Final statistic
-    # --------------------------------------------------
-
-    G_base = np.mean(G_base_eval)
-
-    p_value = (1 + np.sum(G_boot <= G_base)) / (len(G_boot) + 1)
-    Z_score = (G_base - np.mean(G_boot)) / (np.std(G_boot) + 1e-12)
-
-    # --------------------------------------------------
-    # Output
-    # --------------------------------------------------
-
+    # --------------------------
+    # Output verbose e grafico
+    # --------------------------
     if verbose:
-        print("\n=== LAMBDA-GUARD OVERFITTING TEST ===")
-        print("G_base:", G_base)
-        print("Mean G_boot:", np.mean(G_boot))
-        print("Z-score:", Z_score)
-        print("p-value:", p_value)
+        print("\n=== LAMBDA-GUARD OVERFITTING TEST (CORRETTO) ===")
+        print(f"Lambda_train: {Lambda_train:.6e}")
+        print(f"Mean Lambda_oob: {np.mean(Lambda_oob_arr):.6e}")
+        print(f"R = Lambda_train / mean(Lambda_oob): {R:.3f}")
+        print(f"p-value: {p_value:.3f}")
+        print("Diagnosis:", "OVERFITTING detected" if overfitting else "Model stable")
 
-        if p_value < alpha:
-            print("Diagnosis: OVERFITTING detected")
-        else:
-            print("Diagnosis: Model stable")
+        plt.figure(figsize=(8,5))
+        plt.hist(Lambda_oob_arr, bins=25, alpha=0.7, label="Lambda OOB")
+        plt.axvline(Lambda_train, color='red', linestyle='--', linewidth=2, label="Lambda_train")
+        plt.title("Lambda-Guard Overfitting Test")
+        plt.xlabel("Lambda")
+        plt.ylabel("Frequency")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        # Stampare tutte le metriche medie OOB
+        print("\n--- Metriche medie OOB ---")
+        print(f"Mean C_oob: {np.mean(C_oob_arr):.6e}")
+        print(f"Mean A_oob: {np.mean(A_oob_arr):.6e}")
+        print(f"Mean S_oob: {np.mean(S_oob_arr):.6e}")
 
     return {
-        "G_base": G_base,
-        "G_boot_mean": np.mean(G_boot),
+        "Lambda_train": Lambda_train,
+        "Lambda_oob": Lambda_oob_arr,
+        "R_mean": R,
         "p_value": p_value,
-        "Z_score": Z_score,
-        "G_distribution": G_boot
+        "overfitting": overfitting,
+        "C_oob": C_oob_arr,
+        "A_oob": A_oob_arr,
+        "S_oob": S_oob_arr
     }
+
