@@ -1,194 +1,198 @@
-# λ-Guard: Structural & Stability Overfitting Index for Gradient Boosting
+<p align="center">🛡️ λ-Guard
 
-## Overview
+Overfitting detection for Gradient Boosting — no validation set required
 
-The **λ-Guard** framework is designed to detect overfitting **without using a test set**. Instead of relying on loss values, it analyzes the **geometric structure of the learned representation** and the stability of predictions under small perturbations.
+<i>Understand when boosting stops learning signal and starts memorizing structure.</i>
 
-It decomposes the model into two key spaces:
+</p>---
 
-1. **Representation Space (Capacity)** – captures the structural complexity of the model in terms of how the input space is partitioned.  
-2. **Prediction Trajectory Space (Alignment)** – measures how effectively each component (tree) contributes to the predictive target.
+❓ Why λ-Guard
 
-Each tree in Gradient Boosting partitions the input space into leaf regions. We define a **binary matrix \(Z\)**:
+In Gradient Boosting, overfitting usually appears after the real problem has already started.
 
-\[
-Z_{i,j} =
-\begin{cases}
-1 & \text{if observation } i \text{ falls in leaf } j\\
-0 & \text{otherwise}
-\end{cases}
-\]
+Before validation error increases, the model is already:
 
-- Rows correspond to observations  
-- Columns correspond to leaf regions across all trees  
+- splitting the feature space into extremely small regions
+- fitting leaves supported by very few observations
+- becoming sensitive to tiny perturbations
 
-This matrix acts as a geometric analog to the **hat matrix (\(H\))** in linear regression: it encodes how the model “projects” the training data into its learned representation.
+The model is not improving prediction anymore.
 
+It is learning the shape of the training dataset.
 
-
-## Components of λ-Guard
-
-### 1. Capacity \(C\)
-
-The **capacity** measures the intrinsic complexity of the learned representation:
-
-\[
-C = \mathrm{Var}(Z) = \frac{1}{n} \sum_{i=1}^n \| Z_i - \bar{Z} \|^2
-\]
-
-- High \(C\) → many independent regions (complex partitioning)  
-- Low \(C\) → few effective regions → simpler model  
-
-
-
-### 2. Alignment \(A\)
-
-Alignment quantifies how well the learned representation predicts the target:
-
-\[
-A = \mathrm{Corr}(f(X), y) \quad \text{or equivalently } A = \mathrm{Var}(f(X))
-\]
-
-- High \(A\) → each tree contributes independent functional information  
-- Low \(A\) → later trees are almost linear combinations of earlier ones  
-
-
-
-### 3. Generalization Index (GI)
-
-The **generalization index** measures the balance between alignment and capacity:
-
-\[
-GI = \frac{A}{C}, \quad
-G_{\text{norm}} = \frac{A}{A + C} \in [0,1]
-\]
-
-- \(G_{\text{norm}} \to 1\) → strong generalization  
-- \(G_{\text{norm}} \to 0\) → high capacity, low alignment → potential overfitting  
-
-
-
-### 4. Instability Index \(S\)
-
-Measures sensitivity to small input perturbations:
-
-\[
-S = \frac{1}{n} \sum_{i=1}^{n} \frac{|f(x_i) - f(x_i + \epsilon_i)|}{\sigma_f}, \quad \epsilon_i \sim \mathcal{N}(0, \sigma_\epsilon^2)
-\]
-
-- High \(S\) → model is unstable → small input changes lead to large prediction shifts → overfitting  
+λ-Guard detects that moment.
 
 ---
 
-### 5. Overfitting Index (λ)
+🧠 The intuition
 
-Combines structural complexity and stability:
+A boosting model learns two different things at the same time:
 
-\[\lambda = \frac{C}{A + C} \cdot S\]
+Component| What it does
+Geometry| partitions the feature space
+Predictor| assigns values to each region
 
-<img src="doc/lambda_detection.png" alt="Lambda-Guard" width="600"/>
-- High λ → many independent regions that **do not contribute to alignment**, plus unstable predictions → overfitting  
-- Can also normalize to [0,1]:
+Overfitting happens when:
 
-\[\lambda_{\text{norm}} = \frac{\lambda - \min(\lambda)}{\max(\lambda) - \min(\lambda)}\]
+«the geometry keeps growing but the predictor stops gaining real information.»
 
-<img src="doc/regression_gap_lambda.png"
-     alt="Relationship RMSE Train/Test gap vs Lambda-Guard"
-     width="600"
-     style="display: block; margin: auto;" />
+So λ-Guard measures three signals:
 
-<img src="doc/Norm OFI California.png"
-     alt="RMSE Train/Test gap vs Lambda-Guard"
-     width="600"
-     style="display: block; margin: auto;" />
-
-## 6. Lambda - Overfitting Test
-
-# λ-Guard Test for Structural Overfitting
-
-The **λ-Guard test** detects structural overfitting in gradient boosting models **without using a test set**.  
-It analyzes how much the model relies on each training point, identifying both **global complexity** and **local memorization**.
+- 📦 capacity → how complex the partition is
+- 🎯 alignment → how much signal is extracted
+- 🌊 stability → how fragile predictions are
 
 ---
 
-## Overview
+🧩 Representation (the key object)
 
-1. **Compute leverage H_ii** for each training point `i`:
-H_ii ≈ sum over trees of (learning_rate / size of leaf containing i)
+Every tree divides the feature space into leaves.
 
-2. **Compute observed statistics**:
+We record where each observation falls and build a binary matrix Z:
 
-- **T1 (global complexity / effective DoF ratio)**:
-T1 = mean(H_ii)
+Z(i,j) = 1  if sample i falls inside leaf j
+Z(i,j) = 0  otherwise
 
-- **T2 (local memorization / peak leverage ratio)**:
+Rows → observations
+Columns → all leaves across all trees
 
----
+Think of Z as the representation learned by the ensemble.
 
-## Bootstrap Null Distribution
-
-- Generate `B` bootstrap samples of the training set.
-- Compute T1 and T2 for each sample:
-T1_b = mean(H_ii^b)
-T2_b = max(H_ii^b) / mean(H_ii^b)
-
-- These form empirical null distributions under a **stable model** assumption.
+Linear regression → hat matrix H
+Boosting → representation matrix Z
 
 ---
 
-## Hypothesis Testing
+📦 Capacity — structural complexity
 
-- **Null hypothesis (H0):** model is structurally stable  
-- **Alternative hypothesis (H1):** model exhibits overfitting  
+C = Var(Z)
 
-- Compute empirical p-values:
+What it means:
 
-p1 = fraction of T1_b >= T1_obs
-p2 = fraction of T2_b >= T2_obs
+- low C → the model uses few effective regions
+- high C → the model fragments the space
 
-
-- **Decision:** reject H0 if `p1 < alpha OR p2 < alpha`
-
-> Either a high global complexity (T1) or a high peak leverage (T2) is enough to flag overfitting.
+When boosting keeps adding trees late in training, C grows fast.
 
 ---
 
-## Interpretation
+🎯 Alignment — useful information
 
-- **Mean(H_ii)** → global model complexity  
-- **Max(H_ii)/Mean(H_ii)** → local memorization  
+A = Corr(f(X), y)
 
-Models can be classified as:
+(or equivalently the variance of predictions)
 
-1. Stable / smooth generalization  
-2. Global overfitting / interpolation  
-3. Local memorization / spike-dominated  
-4. Extreme interpolation (both T1 and T2 high)
+- high A → trees add real predictive signal
+- low A → trees mostly refine boundaries
+
+Important behavior:
+
+«After some number of trees, alignment saturates.»
+
+Boosting continues building structure even when prediction stops improving.
 
 ---
 
+🌊 Instability — sensitivity to perturbations
 
-<img src="doc/overfitting_test.png" alt="Overfitting test" width="600"/>
-## Geometric Interpretation
+We slightly perturb inputs:
 
-1. **Matrix \(Z\)** represents the **geometric projection** of observations into leaf regions.  
-2. **Capacity \(C\)** measures the “dimensionality” of this projection.  
-3. **Alignment \(A\)** captures how well this projection is aligned with the target.  
-4. **Instability \(S\)** detects sensitivity to perturbations.  
-5. **λ** = normalized “overfitting score” derived entirely from **training data**, without test set or OOF folds.  
+x' = x + ε
+ε ~ Normal(0, σ²)
 
+and measure prediction change:
 
-<img src="doc/geometric inter.png" alt="Geometric Interpretation" width="600"/>
-Geometric interpretation of Lambda-Guard. Gray squares: leaf regions, blue points: original observations, red points: instability, green arrows: alignment. High lambda occurs when capacity is high, alignment low, and instability high
+S = average |f(x) − f(x')|  /  prediction_std
 
+- low S → smooth model
+- high S → brittle model
 
-Essentially, λ-Guard generalizes the concept of the hat matrix \(H\) to Gradient Boosting models: it measures **how much of the learned representation is used productively versus wasted**, geometrically.
+This is the first thing that explodes during overfitting.
 
+---
 
+🔥 The Overfitting Index
 
-### References / Inspirations
+λ = ( C / (A + C) ) × S
 
-- λ-Guard derived from the geometric structure of the boosting hat-like matrix (Z / pseudo-residual projection)
-- Gradient Boosting as a functional additive model  
-- Generalization Index (GI) framework
+Interpretation:
 
+Situation| λ
+compact structure + stable predictions| low
+many regions + weak signal| high
+unstable predictions| very high
+
+λ measures:
+
+«how much structural complexity is wasted.»
+
+(You can normalize λ to [0,1] for comparisons.)
+
+---
+
+🧪 Structural Overfitting Test
+
+We can also check if specific training points dominate the model.
+
+Approximate leverage:
+
+H_ii ≈ Σ_trees (learning_rate / leaf_size)
+
+This behaves like regression leverage.
+
+We compute:
+
+T1 = mean(H_ii)        # global complexity
+T2 = max(H_ii)/mean(H_ii)   # local memorization
+
+Bootstrap procedure
+
+repeat B times:
+    resample training data
+    recompute T1, T2
+
+p-values:
+
+p1 = P(T1_boot ≥ T1_obs)
+p2 = P(T2_boot ≥ T2_obs)
+
+Reject structural stability if:
+
+p1 < α  OR  p2 < α
+
+---
+
+📊 What λ-Guard distinguishes
+
+Regime| Meaning
+✅ Stable| smooth generalization
+📈 Global overfitting| too many effective parameters
+⚠️ Local memorization| few points dominate
+💥 Extreme| interpolation behavior
+
+---
+
+🧭 When to use
+
+- monitoring boosting while trees are added
+- hyperparameter tuning
+- small datasets (no validation split)
+- diagnosing late-stage performance collapse
+
+---
+
+🧾 Conceptual summary
+
+Z  → learned representation
+C  → structural dimensionality
+A  → extracted signal
+S  → smoothness
+λ  → structural overfitting
+
+Overfitting = structure grows faster than information.
+
+---
+
+📜 License
+
+MIT (edit as needed)
