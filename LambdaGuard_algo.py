@@ -374,145 +374,99 @@ def gap_lambdaguard_test(df):
   plt.show()
 
 
-# TEST OVERFITTING
-import numpy as np
-from sklearn.base import clone
-import numpy as np
-from sklearn.base import clone
-import matplotlib.pyplot as plt
+def lambda_guard_test(model, X, B=300, alpha=0.05, plot=True):
 
-def lambda_guard_overfit_test_corrected(model, X, y, N=100, noise_std=None,
-                                       random_state=0, alpha=0.05, verbose=True):
-    """
-    Lambda-Guard Overfitting Test (corretto)
-    
-    - Calcola Lambda sul train (modello base)
-    - Calcola distribuzione di Lambda su OOB / bootstrap
-    - Confronto statistico: se Lambda_train > Lambda_oob (media o percentili), overfitting
-    """
+    n = X.shape[0]
+    H = boosting_leverage(model, X)
 
-    rng = np.random.RandomState(random_state)
-    n = len(y)
+    # statistiche osservate
+    T1_obs = H.sum() / n
+    T2_obs = H.max() / H.mean()
 
-    # Adatta il rumore alla scala dei dati
-    if noise_std is None:
-        noise_std = 0.01 * np.std(X, axis=0) + 0.01 * np.std(y)
+    T1_boot = np.zeros(B)
+    T2_boot = np.zeros(B)
 
-    # --------------------------
-    # Helper functions
-    # --------------------------
-    def alignment_R2(preds, y_true):
-        var_y = np.var(y_true)
-        if var_y == 0:
-            return 0.0
-        return max(0.0, 1 - np.var(y_true - preds) / var_y)
+    for b in range(B):
+        idx = np.random.choice(n, n, replace=True)
+        Hb = boosting_leverage(model, X[idx])
+        T1_boot[b] = Hb.sum() / n
+        T2_boot[b] = Hb.max() / Hb.mean()
 
-    def instability_index(model, X_local):
-        preds_clean = model.predict(X_local)
-        noise = rng.normal(0, noise_std, X_local.shape)
-        preds_noisy = model.predict(X_local + noise)
-        mse_shift = np.mean((preds_clean - preds_noisy)**2)
-        var_preds = np.var(preds_clean) + 1e-12
-        return mse_shift / var_preds
+    # quantili critici (one-sided)
+    q1 = np.quantile(T1_boot, 1 - alpha)
+    q2 = np.quantile(T2_boot, 1 - alpha)
 
-    def compute_C(preds):
-        return np.var(preds)
+    # p-values
+    p1 = np.mean(T1_boot >= T1_obs)
+    p2 = np.mean(T2_boot >= T2_obs)
 
-    def compute_Lambda(C, A, S):
-        return (C / (C + A + 1e-12)) * S
+    reject = (p1 < alpha) or (p2 < alpha)
 
-    # --------------------------
-    # Fit modello base sul train
-    # --------------------------
-    base_model = clone(model)
-    base_model.fit(X, y)
-    base_preds = base_model.predict(X)
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    C_train = compute_C(base_preds)
-    A_train = alignment_R2(base_preds, y)
-    S_train = instability_index(base_model, X)
-    Lambda_train = compute_Lambda(C_train, A_train, S_train)
+        # ---- T1: df_ratio ----
+        ax = axes[0]
+        ax.hist(T1_boot, bins=30, density=True, alpha=0.7)
+        ax.axvline(T1_obs, color="black", linewidth=2, label="Observed")
+        ax.axvline(q1, color="red", linestyle="--", label="Critical (1-α)")
 
-    # --------------------------
-    # Bootstrap OOB
-    # --------------------------
-    Lambda_oob_list = []
-    C_oob_list = []
-    A_oob_list = []
-    S_oob_list = []
+        ax.axvspan(q1, T1_boot.max(),
+                   alpha=0.25, label="Reject H₀ region")
 
-    for _ in range(N):
-        idx = rng.choice(n, n, replace=True)
-        oob_mask = np.ones(n, dtype=bool)
-        oob_mask[idx] = False
-        if np.sum(oob_mask) < 5:
-            continue
+        ax.set_title("T1: Effective DoF ratio")
+        ax.set_xlabel("df_ratio")
+        ax.set_ylabel("Density")
+        ax.legend()
 
-        Xb, yb = X[idx], y[idx]
-        Xoob, yoob = X[oob_mask], y[oob_mask]
+        # ---- T2: peak_ratio ----
+        ax = axes[1]
+        ax.hist(T2_boot, bins=30, density=True, alpha=0.7)
+        ax.axvline(T2_obs, color="black", linewidth=2, label="Observed")
+        ax.axvline(q2, color="red", linestyle="--", label="Critical (1-α)")
 
-        m = clone(model)
-        m.fit(Xb, yb)
+        ax.axvspan(q2, T2_boot.max(),
+                   alpha=0.25, label="Reject H₀ region")
 
-        preds_oob = m.predict(Xoob)
-        C_oob = compute_C(preds_oob)
-        A_oob = alignment_R2(preds_oob, yoob)
-        S_oob = instability_index(m, Xoob)
-        Lambda_oob = compute_Lambda(C_oob, A_oob, S_oob)
+        ax.set_title("T2: Peak leverage ratio")
+        ax.set_xlabel("max(Hᵢᵢ) / mean(H)")
+        ax.set_ylabel("Density")
+        ax.legend()
 
-        Lambda_oob_list.append(Lambda_oob)
-        C_oob_list.append(C_oob)
-        A_oob_list.append(A_oob)
-        S_oob_list.append(S_oob)
-
-    Lambda_oob_arr = np.array(Lambda_oob_list)
-    C_oob_arr = np.array(C_oob_list)
-    A_oob_arr = np.array(A_oob_list)
-    S_oob_arr = np.array(S_oob_list)
-
-    # --------------------------
-    # Test statistico
-    # --------------------------
-    R = Lambda_train / (np.mean(Lambda_oob_arr) + 1e-12)
-    p_value = (1 + np.sum(Lambda_oob_arr >= Lambda_train)) / (len(Lambda_oob_arr) + 1)
-
-    overfitting = R > 1 or p_value < alpha
-
-    # --------------------------
-    # Output verbose e grafico
-    # --------------------------
-    if verbose:
-        print("\n=== LAMBDA-GUARD OVERFITTING TEST (CORRETTO) ===")
-        print(f"Lambda_train: {Lambda_train:.6e}")
-        print(f"Mean Lambda_oob: {np.mean(Lambda_oob_arr):.6e}")
-        print(f"R = Lambda_train / mean(Lambda_oob): {R:.3f}")
-        print(f"p-value: {p_value:.3f}")
-        print("Diagnosis:", "OVERFITTING detected" if overfitting else "Model stable")
-
-        plt.figure(figsize=(8,5))
-        plt.hist(Lambda_oob_arr, bins=25, alpha=0.7, label="Lambda OOB")
-        plt.axvline(Lambda_train, color='red', linestyle='--', linewidth=2, label="Lambda_train")
-        plt.title("Lambda-Guard Overfitting Test")
-        plt.xlabel("Lambda")
-        plt.ylabel("Frequency")
-        plt.legend()
         plt.tight_layout()
         plt.show()
 
-        # Stampare tutte le metriche medie OOB
-        print("\n--- Metriche medie OOB ---")
-        print(f"Mean C_oob: {np.mean(C_oob_arr):.6e}")
-        print(f"Mean A_oob: {np.mean(A_oob_arr):.6e}")
-        print(f"Mean S_oob: {np.mean(S_oob_arr):.6e}")
-
     return {
-        "Lambda_train": Lambda_train,
-        "Lambda_oob": Lambda_oob_arr,
-        "R_mean": R,
-        "p_value": p_value,
-        "overfitting": overfitting,
-        "C_oob": C_oob_arr,
-        "A_oob": A_oob_arr,
-        "S_oob": S_oob_arr
+        "T1_df_ratio": T1_obs,
+        "critical_df_ratio": q1,
+        "p_df_ratio": p1,
+        "T2_peak_ratio": T2_obs,
+        "critical_peak_ratio": q2,
+        "p_peak_ratio": p2,
+        "reject_H0": reject
     }
+
+
+def boosting_leverage(model, X):
+    """
+    H_ii ≈ self influence del punto i
+    basato sulle foglie degli alberi del boosting
+    """
+    n = X.shape[0]
+    influence = np.zeros(n)
+
+    for est in model.estimators_.ravel():
+        leaf_id = est.apply(X)
+
+        unique, counts = np.unique(leaf_id, return_counts=True)
+        leaf_sizes = dict(zip(unique, counts))
+
+        lr = model.learning_rate
+
+        for i in range(n):
+            influence[i] += lr / leaf_sizes[leaf_id[i]]
+
+    return influence
+
+
 
