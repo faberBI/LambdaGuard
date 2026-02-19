@@ -195,20 +195,6 @@ def plot_all(df, dataset_name):
 # RUN
 # ============================================================
 
-diab = load_diabetes()
-df_diab = run_experiment(diab.data, diab.target, "Diabetes")
-plot_all(df_diab, "Diabetes")
-
-
-import numpy as np
-import pandas as pd
-
-df = pd.read_excel('/content/results_model_lambda_guard.xlsx')
-
-
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 def detect_structural_overfitting_cusum_robust(
     df,
@@ -266,7 +252,7 @@ def detect_structural_overfitting_cusum_robust(
     delta2_lambda = pd.Series(delta2_lambda).rolling(smooth_window, min_periods=1).mean().values
 
     # ---------------------------------------------------
-    # CUSUM cumulativo positivo
+    # CUSUM cum positive
     # ---------------------------------------------------
     mean_d2 = np.mean(delta2_lambda)
     std_d2 = np.std(delta2_lambda)
@@ -340,31 +326,25 @@ result = detect_structural_overfitting_cusum_robust(
     complexity_metric="combined"
 )
 
+# ---------------------------------------------------
+# Cross-section test
+# ---------------------------------------------------
 
 def gap_lambdaguard_test(df):
 
   X = df['OFI_norm']
   y = df['Gap']
-
-  # Aggiungo intercept
   X_const = sm.add_constant(X)
-
-  # Fit regressione lineare
   model = sm.OLS(y, X_const).fit()
-
-  # Risultati
+  
   print(model.summary())
-
-  # Coefficiente beta
   beta = model.params['OFI_norm']
-  print(f"Coefficiente beta: {beta:.4f}")
-
-  # p-value del test H0: beta=0
+  
+  print(f"beta: {beta:.4f}")
   pvalue = model.pvalues['OFI_norm']
   print(f"P-value test beta=0: {pvalue:.4f}")
-
-  # Plot
-  plt.figure(figsize=(8,6))
+  
+    plt.figure(figsize=(8,6))
   plt.scatter(df['OFI_norm'], df_model['Gap'], alpha=0.6)
   plt.plot(df['OFI_norm'], model.predict(X_const), color='red', linewidth=2)
   plt.xlabel('Lambda')
@@ -373,6 +353,9 @@ def gap_lambdaguard_test(df):
   plt.grid(True)
   plt.show()
 
+# ---------------------------------------------------
+# TESTING HYP
+# ---------------------------------------------------
 
 def lambda_guard_test(model, X, B=300, alpha=0.05, plot=True):
 
@@ -467,6 +450,7 @@ def boosting_leverage(model, X):
             influence[i] += lr / leaf_sizes[leaf_id[i]]
 
     return influence
+
 
 
 
