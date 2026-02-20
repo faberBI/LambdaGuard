@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lambda-guard-boosting"
-version = "0.2.2"
+version = "0.2.3"
 description = "Overfitting detection for Gradient Boosting models using λ-Guard methodology."
 readme = "README.md"
 license = {text = "MIT"}
