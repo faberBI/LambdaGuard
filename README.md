@@ -14,7 +14,7 @@
   <a href="https://coveralls.io/github/faberBI/lambdaguard">
     <img src="https://img.shields.io/coveralls/github/faberBI/lambdaguard/main.svg" alt="Coverage Status">
   </a>
-  <a href="https://pypi.org/project/lambdaguard/">
+  <a href="https://pypi.org/project/lambda-guard-boosting/">
     <img src="https://img.shields.io/pypi/v/lambdaguard?logo=python" alt="PyPI Version">
   </a>
   <a href="https://opensource.org/licenses/MIT">
