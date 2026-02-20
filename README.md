@@ -2,8 +2,6 @@
   <img src="doc/logo.png" alt="Nuvia Logo" width="160"/>
 </p>
 
-<h1 align="center">🛡️ λ-Guard</h1>
-
 <p align="center">
 <strong>Overfitting detection for Gradient Boosting</strong> — <em>no validation set required</em><br>
 <i>Detect the moment when your model stops learning signal and starts memorizing structure.</i>
