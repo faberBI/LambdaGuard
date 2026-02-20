@@ -28,7 +28,7 @@
 In Gradient Boosting, overfitting often appears **before the validation error rises**.  
 By that point, the model is already:
 
-- 🪵 Splitting features into extremely fine regions  
+- ✂️ Splitting features into extremely fine regions  
 - 🍃 Fitting leaves supported by very few observations  
 - 🌪 Sensitive to tiny perturbations  
 
