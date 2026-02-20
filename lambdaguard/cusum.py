@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def detect_structural_overfitting_cusum_ofi(
+def lambda_detect(
     df,
     model_name,
     complexity_metric="combined",
