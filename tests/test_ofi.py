@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.datasets import make_regression
 from sklearn.ensemble import GradientBoostingRegressor
 
-from lambdaguard.opi import generalization_index, instability_index, create_model
+from lambdaguard.ofi import generalization_index, instability_index, create_model
 
 def test_generalization_index():
     X, y = make_regression(n_samples=50, n_features=5, noise=0.1, random_state=42)
