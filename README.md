@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/<your-username>/struct_overfitting/main/logo.png" width="120" alt="λ-Guard Logo"/>
+  <img src="https://raw.githubusercontent.com/faberBI/lambdaguard/main/logo.png" width="120" alt="λ-Guard Logo"/>
 </p>
 
 <h1 align="center">🛡️ λ-Guard</h1>
