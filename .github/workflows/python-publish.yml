@@ -1,18 +1,30 @@
-name: Build & Publish
+name: Build & Publish Python package
 
 on:
   push:
     tags:
-      - "v*.*.*"  # genera pacchetto quando fai un tag
+      - "v*.*.*"  # si attiva solo quando fai tag tipo v0.1.0
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: 3.11
-      - run: pip install --upgrade build twine
-      - run: python -m build
-      - run: twine upload dist/* --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }}
+
+      - name: Install build tools
+        run: pip install --upgrade build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: twine upload dist/*
