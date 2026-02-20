@@ -1,7 +1,7 @@
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 from .ofi import generalization_index, instability_index, create_model, run_experiment_multi_model, plot_all_multi_model, regression_test
-from .lambda_guard import lambda_guard_test, boosting_leverage, interpret
+from .lambdaguard import lambda_guard_test, boosting_leverage, interpret
 from .cusum import lambda_detect
 
 __all__ = [
