@@ -1,5 +1,5 @@
 # 📜 MIT License
-
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
 © 2026 **Fabrizio Di Sciorio, PhD**
 
 ---
