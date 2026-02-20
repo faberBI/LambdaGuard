@@ -9,9 +9,13 @@ setup(
         "pandas",
         "matplotlib",
         "scikit-learn",
-        "seaborn"
+        "seaborn",
+        "xgboost",
+        "lightgbm",
+        "catboost"
     ],
     url="https://github.com/faberBI/lambdaguard",
     author="Fabrizio Di Sciorio, PhD",
     description="Structural Overfitting detection for Gradient Boosting models",
+
 )
