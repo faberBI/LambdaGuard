@@ -37,5 +37,5 @@ Documentation = "https://github.com/faberBI/lambdaguard"
 BugTracker = "https://github.com/faberBI/lambdaguard/issues"
 
 [tool.setuptools.packages.find]
-where = ["lambdaguard"]
-exclude = ["notebooks*", "tests*", "docs*"]
+where = ["."]
+exclude = ["notebooks*", "tests*", "docs*"]s
