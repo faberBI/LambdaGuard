@@ -17,5 +17,5 @@ setup(
     url="https://github.com/faberBI/lambdaguard",
     author="Fabrizio Di Sciorio, PhD",
     description="Structural Overfitting detection for Gradient Boosting models",
-
+    python_requires='>=3.8',
 )
